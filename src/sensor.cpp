@@ -17,6 +17,12 @@
 #include "proc/depth-decompress.h"
 #include "global_timestamp_reader.h"
 
+// rovy addon
+extern std::function<void()> color_fn;
+extern std::function<void()> depth_fn;
+extern bool colorArrived;
+//
+
 namespace librealsense
 {
     //////////////////////////////////////////////////////
@@ -312,10 +318,18 @@ namespace librealsense
             auto&& req_profile_base = std::dynamic_pointer_cast<stream_profile_base>(req_profile);
             try
             {
+                // rovy addon
+                int bufferSize = DEFAULT_V4L2_FRAME_BUFFERS;
+                rs2_stream type = req_profile_base->get_stream_type();
+                if (type == RS2_STREAM_DEPTH || type == RS2_STREAM_COLOR) {
+                    bufferSize = 1;
+                }
+                //
+
                 unsigned long long last_frame_number = 0;
                 rs2_time_t last_timestamp = 0;
                 _device->probe_and_commit(req_profile_base->get_backend_profile(),
-                    [this, req_profile_base, req_profile, last_frame_number, last_timestamp](platform::stream_profile p, platform::frame_object f, std::function<void()> continuation) mutable
+                    [this, req_profile_base, req_profile, last_frame_number, last_timestamp, type](platform::stream_profile p, platform::frame_object f, std::function<void()> continuation) mutable
                 {
                     const auto&& system_time = environment::get_instance().get_time_service()->get_time();
                     const auto&& fr = generate_frame_from_data(f, _timestamp_reader.get(), last_timestamp, last_frame_number, req_profile_base);
@@ -334,7 +348,21 @@ namespace librealsense
                         return;
                     }
 
-                    frame_continuation release_and_enqueue(continuation, f.pixels);
+                    // rovy addon
+                    frame_continuation release_and_enqueue;
+                    if (type == RS2_STREAM_DEPTH) {
+                        if (colorArrived) {
+                            depth_fn = continuation;
+                        } else {
+                            release_and_enqueue = frame_continuation(continuation, f.pixels);
+                        }
+                    } else if (type == RS2_STREAM_COLOR) {
+                        color_fn = continuation;
+                        colorArrived = true;
+                    } else {
+                        release_and_enqueue = frame_continuation(continuation, f.pixels);
+                    }
+                    //
 
                     LOG_DEBUG("FrameAccepted," << librealsense::get_string(req_profile_base->get_stream_type())
                         << ",Counter," << std::dec << fr->additional_data.frame_number
@@ -367,16 +395,18 @@ namespace librealsense
                         return;
                     }
 
-                    if (!requires_processing)
-                    {
-                        fh->attach_continuation(std::move(release_and_enqueue));
-                    }
+                    // rovy addon
+//                    if (!requires_processing)
+//                    {
+//                        fh->attach_continuation(std::move(release_and_enqueue));
+//                    }
+                    //
 
                     if (fh->get_stream().get())
                     {
                         _source.invoke_callback(std::move(fh));
                     }
-                });
+                }, bufferSize);
             }
             catch (...)
             {
