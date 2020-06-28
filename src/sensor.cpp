@@ -358,7 +358,6 @@ namespace librealsense
                         }
                     } else if (type == RS2_STREAM_COLOR) {
                         color_fn = continuation;
-                        colorArrived = true;
                     } else {
                         release_and_enqueue = frame_continuation(continuation, f.pixels);
                     }
@@ -405,6 +404,10 @@ namespace librealsense
                     if (fh->get_stream().get())
                     {
                         _source.invoke_callback(std::move(fh));
+                    }
+
+                    if (type == RS2_STREAM_COLOR) {
+                        colorArrived = true;
                     }
                 }, bufferSize);
             }
